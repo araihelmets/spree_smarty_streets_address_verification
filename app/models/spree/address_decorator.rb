@@ -18,6 +18,14 @@ Spree::Address.class_eval do
     query
   }
 
+  # 2018-04-24 09:39:00 AV
+  # ARAI > Dev > Canadian Dealers > Callback for when dealer account created
+  # NOTE: This works too but doesn't use the geocoder built in methods
+  # before_save :get_google_lat_long, :if => :in_canada?
+  # This version uses the builtin geocoder methods
+  geocoded_by :zipcode
+  after_validation :geocode, :if => :in_canada?
+
   # Indicates if an address is a valid deliverable address. Can only validate
   # addresses in the United States. If the address is outside the United States
   # then an error is thrown.
@@ -25,20 +33,63 @@ Spree::Address.class_eval do
     raise SpreeSmartyStreetsAddressVerification::UnsupportedAddress,
       'Cannot validate internationally' unless in_united_states?
 
+    #new_logger ||= Logger.new("#{Rails.root}/log/apo.log")
+    #new_logger.info "-------------------------------"
+    #new_logger.info "address variables"
+    #new_logger.info address1.to_s
+    #new_logger.info address2.to_s
+    #new_logger.info city.to_s
+    #new_logger.info state.to_s
+    #new_logger.info zipcode.to_s
+    #new_logger.info company.to_s
+    #new_logger.info "-------------------------------"
+
     # Grab out the fields we need and wrap up in object
-    address = SmartyStreets::StreetAddressRequest.new \
-      street: address1.to_s, street2: address2.to_s, city: city.to_s,
-      state: state_text.to_s, zipcode: zipcode.to_s, addressee: company.to_s
+    # 2017-11-28 11:54:55 AV
+    # ARAI > Dev > APO/FPO Issues > Debugging backend > Trying to figure out StreetAddressAPI.call is returning a nil address
+    # https://github.com/peter-edge/smartystreets_ruby
+    # NOTE: For some reason, the above ruby SmartyStreets plugin won't validate APO/FPO addresses if the PO Box is on the address2 variable.
+    # It needs to be combined with address1 for it to validate. For non APO/FPO (military addresses) it totally works fine.
+    if city.downcase.to_s == 'apo' or 'fpo'
+      address = SmartyStreets::StreetAddressRequest.new \
+        street: "#{address1.to_s} #{address2.to_s}", street2: '', city: city.to_s,
+        state: state_text.to_s, zipcode: zipcode.to_s, addressee: company.to_s
+    else
+      address = SmartyStreets::StreetAddressRequest.new \
+        street: address1.to_s, street2: address2.to_s, city: city.to_s,
+        state: state_text.to_s, zipcode: zipcode.to_s, addressee: company.to_s
+    end
+
+    # Grab out the fields we need and wrap up in object
+    #address = SmartyStreets::StreetAddressRequest.new \
+    #  street: address1.to_s, street2: address2.to_s, city: city.to_s,
+    #  state: state_text.to_s, zipcode: zipcode.to_s, addressee: company.to_s
+
+    #address = SmartyStreets::StreetAddressRequest.new \
+    #  street: "#{address1.to_s} #{address2.to_s}", street2: '', city: city.to_s,
+    #  state: state_text.to_s, zipcode: zipcode.to_s, addressee: company.to_s
+
+    #new_logger.info "-------------------------------"
+    #new_logger.info "request address"
+    #new_logger.info address
+    #new_logger.info "-------------------------------"
 
     begin
       address = SmartyStreets::StreetAddressApi.call address
 
+      #new_logger.info "###############################"
+      #new_logger.info "call address"
+      #new_logger.info address
+      #new_logger.info "###############################"
+
       if address.empty?
+        # new_logger.info "Step 0"
         # The API returns a list of address since it can validate multiple
         # addresses at once. If the list is empty then the address did not
         # validate so just return false
         return false
       else
+        # new_logger.info "Step 1"
         # If the list is not empty grab the first one and normalize the address
         # fields so the normalized version is saved.
         address = address.first
@@ -59,11 +110,14 @@ Spree::Address.class_eval do
         return true
       end
     rescue SmartyStreets::ApiError
+      # new_logger.info "Step 2"
       if $!.code == SmartyStreets::ApiError::BAD_INPUT
+        # new_logger.info "Step 3"
         # If address did not have required fields then treat as a
         # non-deliverable address.
         return false
       else
+        # new_logger.info "Step 4"
         # All other errors are configuration and availability issues that
         # should raise an exception so the ops team can respond
         raise
@@ -73,11 +127,35 @@ Spree::Address.class_eval do
 
   # Boolean to indicate if the address is in the United states
   def in_united_states?
+    #new_logger ||= Logger.new("#{Rails.root}/log/apo.log")
+    #new_logger.info "///////////////////////////////"
+    #new_logger.info "in_united_states?"
+    #new_logger.info country
+    #new_logger.info "///////////////////////////////"
     # Use iso_name since the Spree factory uses "United States of America" for
     # the name while the spree seed data uses "United States". It's possible
     # a store may even customize the name to something else. So iso_name
     # seems safer. Use `try` in case country is not set.
     country.try(:iso_name) == 'UNITED STATES'
+  end
+
+  # 2018-04-24 09:39:17 AV
+  # ARAI > Dev > Canadian Dealers > Callback for when dealer account created
+  def in_canada?
+    #new_logger ||= Logger.new("#{Rails.root}/log/apo.log")
+    #new_logger.info "///////////////////////////////"
+    #new_logger.info "in_canada?"
+    #new_logger.info country
+    #new_logger.info "///////////////////////////////"
+    country.try(:iso_name) == 'CANADA'
+  end
+
+  # 2018-04-24 09:39:26 AV
+  # ARAI > Dev > Canadian Dealers > Callback for when dealer account created
+  def get_google_lat_long
+    coordinates = Geocoder.coordinates(self.zipcode)
+    self.latitude = coordinates[0]
+    self.longitude = coordinates[1]
   end
 
   private

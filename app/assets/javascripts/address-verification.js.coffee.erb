@@ -39,7 +39,7 @@ permanently_disabled = {}
 $(document).on 'ready page:load', ->
   return unless $.LiveAddress
   service = $.LiveAddress
-    key: smarty_key, debug: false, enforceVerification: true, autoVerify: false,
+    key: smarty_key, debug: false, enforceVerification: false, autoVerify: false,
     fieldSelector: 'input[type=text], input:not([type]), textarea, select:not([name*="country_id"])'
 
   for country in $ 'select[name*="country_id"]'
